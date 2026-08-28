@@ -199,10 +199,13 @@
     <h2>Order received!</h2>
     <p>Your reference number:</p>
     <div class="ref" id="refOut"></div>
-    <p style="background:#FFF2CC; padding:10px 14px; border-radius:6px; font-size:13px;">📱 A Messenger tab just opened with your order details — please tap <b>Send</b> there first. Then come back to <b>this tab</b> to view your payment info below and complete payment.</p>
+    <p style="background:#FFF2CC; padding:10px 14px; border-radius:6px; font-size:13px;">📱 A Messenger tab may have opened. If the message is already there, just tap <b>Send</b>. If it opened empty, tap <b>Copy Message</b> below, then paste it into the chat.</p>
+    <div style="background:var(--cream); border-radius:8px; padding:14px; margin:14px 0;">
+      <pre id="orderMsgText" style="white-space:pre-wrap; font-family:'IBM Plex Mono',monospace; font-size:12px; margin:0 0 10px; color:var(--text);"></pre>
+      <button type="button" id="copyMsgBtn" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--hair); background:#fff; font-family:'Karla',sans-serif; font-weight:700; font-size:13px; cursor:pointer; color:var(--ink);">📋 Copy Message</button>
+    </div>
     <div id="paymentInfoBox"></div>
-    <p>Didn't see the Messenger tab open, or it got blocked? Tap below instead:</p>
-    <a href="#" id="notifyBtn" class="notify-btn" target="_blank">Send order on Messenger</a>
+    <a href="#" id="notifyBtn" class="notify-btn" target="_blank">Open Messenger</a>
   </div>
 
   <div class="cart-bar" id="cartBar">
@@ -644,6 +647,34 @@ document.getElementById('placeBtn').addEventListener('click', async () => {
     msg += `\nTotal: ₱${order.total}\nName: ${order.name}\nContact: ${order.phone}`;
     const notifyUrl = `https://m.me/${MESSENGER_USERNAME}?text=${encodeURIComponent(msg)}`;
     document.getElementById('notifyBtn').href = notifyUrl;
+    document.getElementById('orderMsgText').textContent = msg;
+    document.getElementById('copyMsgBtn').onclick = () => {
+      const btn = document.getElementById('copyMsgBtn');
+      const fallbackCopy = (text) => {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus(); ta.select();
+        try { document.execCommand('copy'); } catch (e) {}
+        document.body.removeChild(ta);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(msg).then(() => {
+          btn.textContent = '✓ Copied!';
+          setTimeout(() => { btn.textContent = '📋 Copy Message'; }, 2000);
+        }).catch(() => {
+          fallbackCopy(msg);
+          btn.textContent = '✓ Copied!';
+          setTimeout(() => { btn.textContent = '📋 Copy Message'; }, 2000);
+        });
+      } else {
+        fallbackCopy(msg);
+        btn.textContent = '✓ Copied!';
+        setTimeout(() => { btn.textContent = '📋 Copy Message'; }, 2000);
+      }
+    };
 
     document.getElementById('refOut').textContent = order.id;
     renderPaymentInfo(order);
