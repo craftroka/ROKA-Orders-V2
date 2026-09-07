@@ -100,7 +100,7 @@
     <h2>Order received!</h2>
     <p>Your reference number:</p>
     <div class="ref" id="refOut"></div>
-    <p style="background:#FFF2CC; padding:10px 14px; border-radius:6px; font-size:13px;">📱 A Messenger tab may have opened. If the message is already there, just tap <b>Send</b>. If it opened empty, tap <b>Copy Message</b> below, then paste it into the chat.</p>
+    <p style="background:#FFF2CC; padding:10px 14px; border-radius:6px; font-size:13px;">✅ Your order is confirmed! Want to chat with us directly or have questions? Message us on Facebook below — totally optional.</p>
     <div style="background:var(--cream); border-radius:8px; padding:14px; margin:14px 0;">
       <pre id="orderMsgText" style="white-space:pre-wrap; font-family:'IBM Plex Mono',monospace; font-size:12px; margin:0 0 10px; color:var(--text);"></pre>
       <button type="button" id="copyMsgBtn" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--hair); background:#fff; font-family:'Karla',sans-serif; font-weight:700; font-size:13px; cursor:pointer; color:var(--ink);">📋 Copy Message</button>
@@ -451,7 +451,6 @@ document.getElementById('placeBtn').addEventListener('click', async () => {
 
   const btn = document.getElementById('placeBtn');
   btn.disabled = true; btn.textContent = 'Placing order…';
-  const notifyTab = window.open('', '_blank');
 
   try {
     if (!APPS_SCRIPT_URL || APPS_SCRIPT_URL.indexOf('REPLACE_WITH') === 0) throw new Error('SCRIPT_NOT_CONFIGURED');
@@ -500,9 +499,7 @@ document.getElementById('placeBtn').addEventListener('click', async () => {
     document.getElementById('view-shop').classList.add('hidden');
     document.getElementById('view-confirm').classList.remove('hidden');
     window.scrollTo(0,0);
-    if (notifyTab) { notifyTab.location.href = notifyUrl; }
   } catch (err) {
-    if (notifyTab) { notifyTab.close(); }
     console.error('Order save failed:', err);
     if (err && err.message === 'SCRIPT_NOT_CONFIGURED') {
       showError('Ordering isn\'t set up yet — the site owner needs to connect the Google Sheet script.');
