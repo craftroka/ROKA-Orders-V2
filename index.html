@@ -530,7 +530,10 @@ document.getElementById('placeBtn').addEventListener('click', async () => {
 
   try {
     if (!APPS_SCRIPT_URL || APPS_SCRIPT_URL.indexOf('REPLACE_WITH') === 0) throw new Error('SCRIPT_NOT_CONFIGURED');
-    await fetch(APPS_SCRIPT_URL, { method:'POST', mode:'no-cors', headers:{'Content-Type':'text/plain'}, body: JSON.stringify(order) });
+    // Log to the Sheet in the background — don't make the customer wait on it. With
+    // mode:'no-cors' we can't read the response anyway, so there's nothing to await for.
+    fetch(APPS_SCRIPT_URL, { method:'POST', mode:'no-cors', headers:{'Content-Type':'text/plain'}, body: JSON.stringify(order) })
+      .catch(function(err){ console.error('Sheet log failed (order still placed):', err); });
 
     let msg = `New ROKA order ${order.id}\n`;
     order.items.forEach(it => {
