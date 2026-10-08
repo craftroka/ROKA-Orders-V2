@@ -99,6 +99,7 @@
   #view-confirm { text-align:center; padding:40px 20px; }
   #view-confirm h2 { font-family:'Newsreader',serif; color:var(--ink); }
   #view-confirm .ref { font-family:'IBM Plex Mono',monospace; font-size:18px; background:var(--cream); display:inline-block; padding:8px 16px; border-radius:6px; margin:10px 0 20px; }
+  #view-confirm .again-btn { display:block; width:100%; margin-top:18px; background:var(--mango); color:#17301F; border:none; border-radius:8px; padding:14px; font-family:'Karla',sans-serif; font-weight:700; font-size:15px; cursor:pointer; }
   #view-confirm a.notify-btn { display:inline-block; background:var(--ink); color:#fff; text-decoration:none; padding:12px 22px; border-radius:8px; font-weight:700; font-size:14px; margin-top:10px; }
   .payment-info-card { background:var(--cream); border-radius:10px; padding:20px; margin:20px 0; text-align:left; }
   .payment-info-card h4 { font-family:'Newsreader',serif; font-weight:600; color:var(--ink); margin:0 0 12px; font-size:16px; }
@@ -144,6 +145,7 @@
     </div>
     <div id="paymentInfoBox"></div>
     <a href="#" id="notifyBtn" class="notify-btn" target="_blank">Open Messenger</a>
+    <button type="button" id="orderAgainBtn" class="again-btn">← Back to Menu / Order Again</button>
   </div>
 
   <div class="cart-bar" id="cartBar">
@@ -239,11 +241,52 @@ function normalizePhone(raw) {
   return /^09\d{9}$/.test(d) ? d : '';
 }
 
-function fetchStamps(phone) {
-  return fetch(APPS_SCRIPT_URL + '?action=stamps&phone=' + encodeURIComponent(phone))
+const stampCache = {};       // phone -> { info, at }
+const STAMP_CACHE_MS = 10 * 60 * 1000;
+const STAMP_LS_KEY = 'roka_stamp_phone';
+
+function rememberPhone(phone) {
+  try { localStorage.setItem(STAMP_LS_KEY, phone); } catch (e) {}
+}
+function rememberedPhone() {
+  try { return localStorage.getItem(STAMP_LS_KEY) || ''; } catch (e) { return ''; }
+}
+
+const STAMP_SAVED_KEY = 'roka_stamp_card_';
+function saveCardLocal(info) {
+  try { localStorage.setItem(STAMP_SAVED_KEY + info.phone, JSON.stringify(info)); } catch (e) {}
+}
+function savedCardLocal(phone) {
+  try { const raw = localStorage.getItem(STAMP_SAVED_KEY + phone); return raw ? JSON.parse(raw) : null; } catch (e) { return null; }
+}
+
+function fetchStamps(phone, force) {
+  const hit = stampCache[phone];
+  if (!force && hit && Date.now() - hit.at < STAMP_CACHE_MS) {
+    return Promise.resolve(hit.info);
+  }
+  const ctrl = window.AbortController ? new AbortController() : null;
+  const timer = setTimeout(() => { if (ctrl) ctrl.abort(); }, 15000);
+  return fetch(APPS_SCRIPT_URL + '?action=stamps&phone=' + encodeURIComponent(phone), ctrl ? { signal: ctrl.signal } : {})
     .then(r => r.json())
-    .then(data => data && data.ok ? { phone, stamps: data.stamps, rewardReady: data.rewardReady, isNew: data.isNew, expires: data.expires } : null)
-    .catch(() => null);
+    .then(data => {
+      const info = data && data.ok ? { phone, stamps: data.stamps, rewardReady: data.rewardReady, isNew: data.isNew, expires: data.expires } : null;
+      if (info) { stampCache[phone] = { info, at: Date.now() }; rememberPhone(phone); saveCardLocal(info); }
+      return info;
+    })
+    .catch(() => null)
+    .finally(() => clearTimeout(timer));
+}
+
+// Wake the script up in the background so the first stamp check is quicker
+function warmUpStamps() {
+  const saved = normalizePhone(rememberedPhone());
+  if (saved) {
+    document.getElementById('stampPhoneInput').value = saved;
+    checkStampsOnShop();   // shows the saved card instantly, then refreshes
+  } else {
+    fetch(APPS_SCRIPT_URL + '?action=stamps&phone=00000000000').catch(() => {});
+  }
 }
 
 function stampDotsHtml(count) {
@@ -308,8 +351,10 @@ function onPhoneChanged() {
   clearTimeout(stampTimer);
   const phone = normalizePhone(document.getElementById('phoneField').value);
   if (!phone || (stampInfo && stampInfo.phone === phone)) { renderStampBox(); return; }
+  const saved = (stampCache[phone] && stampCache[phone].info) || savedCardLocal(phone);
+  if (saved) { stampInfo = saved; renderStampBox(); }   // instant, from this phone
   stampTimer = setTimeout(() => {
-    stampLoading = true; renderStampBox();
+    if (!saved) { stampLoading = true; renderStampBox(); }
     fetchStamps(phone).then(info => {
       stampLoading = false;
       if (normalizePhone(document.getElementById('phoneField').value) !== phone) return;
@@ -323,14 +368,30 @@ function checkStampsOnShop() {
   const out = document.getElementById('stampCheckOut');
   const phone = normalizePhone(document.getElementById('stampPhoneInput').value);
   if (!phone) { out.innerHTML = '<p>Please enter your 11-digit number (09XXXXXXXXX).</p>'; return; }
-  out.innerHTML = '<p>Checking…</p>';
-  fetchStamps(phone).then(info => {
-    if (!info) { out.innerHTML = '<p>Couldn\'t check right now. Please try again later.</p>'; return; }
-    if (info.isNew) { out.innerHTML = '<p>No stamps yet. Your first order gets a bonus stamp!</p>'; return; }
-    let html = stampDotsHtml(Math.min(info.stamps, STAMP_GOAL));
-    html += `<p><b>${info.stamps} of ${STAMP_GOAL}</b> stamps.${info.rewardReady ? ' 🎉 Your free drink is ready. Add it at checkout.' : ''}</p>`;
-    if (info.expires) html += `<p>${expiryText(info.expires)}</p>`;
+  const show = (info, updating) => {
+    let html;
+    if (info.isNew) {
+      html = '<p>No stamps yet. Your first order gets a bonus stamp!</p>';
+    } else {
+      html = stampDotsHtml(Math.min(info.stamps, STAMP_GOAL));
+      html += `<p><b>${info.stamps} of ${STAMP_GOAL}</b> stamps.${info.rewardReady ? ' 🎉 Your free drink is ready. Add it at checkout.' : ''}</p>`;
+      if (info.expires) html += `<p>${expiryText(info.expires)}</p>`;
+    }
+    if (updating) html += '<p style="font-size:11px;color:#8A9484;">Updating…</p>';
     out.innerHTML = html;
+  };
+  const fresh = stampCache[phone] && Date.now() - stampCache[phone].at < STAMP_CACHE_MS;
+  const saved = (stampCache[phone] && stampCache[phone].info) || savedCardLocal(phone);
+  if (saved) show(saved, !fresh);
+  else out.innerHTML = '<p>⏳ Checking your stamps… (first check can take a few seconds)</p>';
+  if (fresh) return;
+  document.getElementById('stampCheckBtn').disabled = true;
+  fetchStamps(phone, true).then(info => {
+    document.getElementById('stampCheckBtn').disabled = false;
+    if (normalizePhone(document.getElementById('stampPhoneInput').value) !== phone) return;
+    if (info) show(info, false);
+    else if (saved) show(saved, false);
+    else out.innerHTML = '<p>Couldn\'t check right now. Please try again later.</p>';
   });
 }
 
@@ -722,6 +783,9 @@ document.getElementById('placeBtn').addEventListener('click', async () => {
       const added = drinks + (stampInfo.isNew && drinks > 0 ? 1 : 0);
       const after = stampInfo.stamps - (order.freeDrink ? STAMP_GOAL : 0) + added;
       stampInfo = { phone: stampPhone, stamps: after, rewardReady: after >= STAMP_GOAL, isNew: false, expires: stampInfo.expires };
+      stampCache[stampPhone] = { info: stampInfo, at: Date.now() };
+      saveCardLocal(stampInfo);
+      rememberPhone(stampPhone);
       stampOut.innerHTML = `<div class="stamp-card"><h4>⭐ +${added} stamp${added === 1 ? '' : 's'}!</h4>${stampDotsHtml(Math.min(after, STAMP_GOAL))}
         <p><b>${after} of ${STAMP_GOAL}</b> stamps.${after >= STAMP_GOAL ? ' 🎉 You earned a FREE drink! Add it to your next order.' : ` ${STAMP_GOAL - after} more for a free drink.`}</p></div>`;
     } else if (stampPhone) {
@@ -733,6 +797,7 @@ document.getElementById('placeBtn').addEventListener('click', async () => {
     document.getElementById('cartOverlay').classList.remove('show');
     document.getElementById('view-shop').classList.add('hidden');
     document.getElementById('view-confirm').classList.remove('hidden');
+    cart = []; updateCartBar();   // order is placed, so empty the cart and hide the cart bar
     window.scrollTo(0,0);
   } catch (err) {
     console.error('Order save failed:', err);
@@ -746,6 +811,21 @@ document.getElementById('placeBtn').addEventListener('click', async () => {
   }
 });
 
+function orderAgain() {
+  cart = [];
+  ['notesField', 'pickupTimeInput'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  const chk = document.getElementById('useFreeDrink'); if (chk) chk.checked = false;
+  clearError();
+  updateCartBar(); renderCartLines(); updateTotals();
+  const phone = normalizePhone(document.getElementById('phoneField').value);
+  if (phone) document.getElementById('stampPhoneInput').value = phone;
+  document.getElementById('stampCheckOut').innerHTML = '';
+  document.getElementById('view-confirm').classList.add('hidden');
+  document.getElementById('view-shop').classList.remove('hidden');
+  window.scrollTo(0, 0);
+}
+
+document.getElementById('orderAgainBtn').addEventListener('click', orderAgain);
 document.getElementById('phoneField').addEventListener('input', onPhoneChanged);
 document.getElementById('stampCheckBtn').addEventListener('click', checkStampsOnShop);
 
@@ -753,6 +833,7 @@ renderProducts();
 populateSelects();
 renderPromoBanner();
 updateTotals();
+warmUpStamps();
 </script>
 
 </body>
