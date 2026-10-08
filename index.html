@@ -82,6 +82,20 @@
   .error-box.show { display:block; }
   .payment-note { background:var(--cream); border-radius:6px; padding:12px; font-size:12.5px; margin-bottom:14px; line-height:1.5; }
   .hidden { display:none !important; }
+  .stamp-card { background:var(--cream); border-radius:10px; padding:14px 16px; margin:14px 0; box-shadow:0 1px 0 var(--hair); text-align:left; }
+  .stamp-card h4 { font-family:'Newsreader',serif; font-weight:600; font-size:16px; color:var(--ink); margin:0 0 4px; }
+  .stamp-card p { font-size:12.5px; color:#4C5646; margin:4px 0; line-height:1.45; }
+  .stamp-dots { display:flex; gap:8px; margin:10px 0 6px; flex-wrap:wrap; }
+  .stamp-dot { width:30px; height:30px; border-radius:50%; border:2px dashed var(--sage); display:flex; align-items:center; justify-content:center; font-size:14px; color:#fff; background:#fff; }
+  .stamp-dot.on { background:var(--ink); border:2px solid var(--ink); }
+  .stamp-dot.gift { border-color:var(--mango); }
+  .stamp-dot.gift.on { background:var(--mango); border-color:var(--mango); }
+  .stamp-check { display:flex; gap:8px; margin-top:8px; }
+  .stamp-check input { flex:1; padding:9px 12px; border:1px solid var(--hair); border-radius:6px; font-family:'Karla',sans-serif; font-size:14px; background:#fff; }
+  .stamp-check button { padding:0 14px; border-radius:6px; border:none; background:var(--ink); color:#fff; font-family:'Karla',sans-serif; font-weight:700; font-size:13px; cursor:pointer; }
+  .stamp-reward { background:#FFF2CC; border-radius:6px; padding:10px 12px; margin-top:8px; font-size:13px; }
+  .stamp-reward label { display:flex; align-items:center; gap:8px; font-weight:700; color:var(--ink); cursor:pointer; }
+  .stamp-reward select { margin-top:8px; width:100%; padding:8px 10px; border:1px solid var(--hair); border-radius:6px; font-family:'Karla',sans-serif; font-size:13.5px; background:#fff; }
   #view-confirm { text-align:center; padding:40px 20px; }
   #view-confirm h2 { font-family:'Newsreader',serif; color:var(--ink); }
   #view-confirm .ref { font-family:'IBM Plex Mono',monospace; font-size:18px; background:var(--cream); display:inline-block; padding:8px 16px; border-radius:6px; margin:10px 0 20px; }
@@ -106,12 +120,23 @@
     <p class="section-sub">Tarlac · Delivery &amp; Pickup</p>
     <div id="promoBanner" class="promo-banner"></div>
     <div id="product-list"></div>
+
+    <div class="stamp-card" id="stampChecker">
+      <h4>⭐ ROKA Stamp Card</h4>
+      <p>Every drink earns 1 stamp. Collect 6 and get a free Matcha Latte or Hojicha Latte. Bonus stamp on your first order. Card is valid 3 months from your first stamp.</p>
+      <div class="stamp-check">
+        <input type="tel" id="stampPhoneInput" placeholder="09XXXXXXXXX">
+        <button type="button" id="stampCheckBtn">Check</button>
+      </div>
+      <div id="stampCheckOut"></div>
+    </div>
   </div>
 
   <div id="view-confirm" class="wrap hidden">
     <h2>Order received!</h2>
     <p>Your reference number:</p>
     <div class="ref" id="refOut"></div>
+    <div id="stampConfirm"></div>
     <p style="background:#FFF2CC; padding:10px 14px; border-radius:6px; font-size:13px;">✅ Your order is confirmed! Want to chat with us directly or have questions? Message us on Facebook below — totally optional.</p>
     <div style="background:var(--cream); border-radius:8px; padding:14px; margin:14px 0;">
       <pre id="orderMsgText" style="white-space:pre-wrap; font-family:'IBM Plex Mono',monospace; font-size:12px; margin:0 0 10px; color:var(--text);"></pre>
@@ -167,6 +192,7 @@
 
       <div class="field"><label>Your Name</label><input type="text" id="nameField" placeholder="Full name"></div>
       <div class="field"><label>Contact Number</label><input type="tel" id="phoneField" placeholder="09XXXXXXXXX"></div>
+      <div id="stampBox" class="stamp-card hidden"></div>
       <div class="field">
         <label>Payment Method</label>
         <select id="paymentSelect">
@@ -198,6 +224,115 @@ const PROMO_END = new Date('2026-10-31T23:59:59+08:00');
 const PROMO_ZONE = 'capas';
 const PROMO_MIN_MATCHA = 3;
 const PROMO_MATCHA_IDS = new Set((SECTIONS.find(s => s.title === 'Matcha') || { ids: [] }).ids);
+
+// --- Stamp card (e-card): 1 stamp per drink, 6 = 1 free drink, valid 90 days ---
+const STAMP_GOAL = 6;
+const STAMP_FREE_IDS = ['matcha-latte', 'hojicha-latte'];
+let stampInfo = null;      // { phone, stamps, rewardReady, isNew, expires }
+let stampLoading = false;
+let stampTimer = null;
+
+function normalizePhone(raw) {
+  let d = String(raw || '').replace(/\D/g, '');
+  if (d.length === 12 && d.indexOf('63') === 0) d = '0' + d.slice(2);
+  if (d.length === 10 && d.charAt(0) === '9') d = '0' + d;
+  return /^09\d{9}$/.test(d) ? d : '';
+}
+
+function fetchStamps(phone) {
+  return fetch(APPS_SCRIPT_URL + '?action=stamps&phone=' + encodeURIComponent(phone))
+    .then(r => r.json())
+    .then(data => data && data.ok ? { phone, stamps: data.stamps, rewardReady: data.rewardReady, isNew: data.isNew, expires: data.expires } : null)
+    .catch(() => null);
+}
+
+function stampDotsHtml(count) {
+  let html = '<div class="stamp-dots">';
+  for (let i = 1; i <= STAMP_GOAL; i++) {
+    html += `<span class="stamp-dot${i <= count ? ' on' : ''}">${i <= count ? '★' : ''}</span>`;
+  }
+  html += `<span class="stamp-dot gift${count >= STAMP_GOAL ? ' on' : ''}">🎁</span></div>`;
+  return html;
+}
+
+function expiryText(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return 'Card valid until ' + d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) + '.';
+}
+
+function getCartDrinkCount() {
+  return cart.reduce((s, i) => s + i.qty, 0);
+}
+
+function getFreeDrink() {
+  const chk = document.getElementById('useFreeDrink');
+  if (!chk || !chk.checked || !stampInfo || !stampInfo.rewardReady) return null;
+  const pid = document.getElementById('freeDrinkSelect').value;
+  if (STAMP_FREE_IDS.indexOf(pid) === -1) return null;
+  const product = PRODUCTS.find(p => p.id === pid);
+  return { productId: pid, name: product.name, qty: 1 };
+}
+
+function renderStampBox() {
+  const box = document.getElementById('stampBox');
+  if (!box) return;
+  const phone = normalizePhone(document.getElementById('phoneField').value);
+  if (!phone) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+  box.classList.remove('hidden');
+  if (stampLoading) { box.innerHTML = '<p>⭐ Checking your stamp card…</p>'; return; }
+  if (!stampInfo || stampInfo.phone !== phone) {
+    box.innerHTML = '<p>⭐ This order earns stamps on your ROKA Stamp Card.</p>';
+    return;
+  }
+  const wasChecked = document.getElementById('useFreeDrink') ? document.getElementById('useFreeDrink').checked : false;
+  const wasPick = document.getElementById('freeDrinkSelect') ? document.getElementById('freeDrinkSelect').value : STAMP_FREE_IDS[0];
+  const earn = getCartDrinkCount() + (stampInfo.isNew && getCartDrinkCount() > 0 ? 1 : 0);
+  let html = `<h4>⭐ Your Stamp Card</h4>${stampDotsHtml(Math.min(stampInfo.stamps, STAMP_GOAL))}
+    <p><b>${stampInfo.stamps} of ${STAMP_GOAL}</b> stamps. This order adds <b>${earn}</b>${stampInfo.isNew && earn ? ' (includes 1 welcome stamp)' : ''}.</p>`;
+  if (stampInfo.expires) html += `<p>${expiryText(stampInfo.expires)}</p>`;
+  if (stampInfo.rewardReady) {
+    const opts = STAMP_FREE_IDS.map(id => {
+      const p = PRODUCTS.find(pr => pr.id === id);
+      return `<option value="${id}"${id === wasPick ? ' selected' : ''}>${p.name}</option>`;
+    }).join('');
+    html += `<div class="stamp-reward">
+      <label><input type="checkbox" id="useFreeDrink"${wasChecked ? ' checked' : ''}> 🎁 Add my FREE drink to this order</label>
+      <select id="freeDrinkSelect">${opts}</select>
+    </div>`;
+  }
+  box.innerHTML = html;
+}
+
+function onPhoneChanged() {
+  clearTimeout(stampTimer);
+  const phone = normalizePhone(document.getElementById('phoneField').value);
+  if (!phone || (stampInfo && stampInfo.phone === phone)) { renderStampBox(); return; }
+  stampTimer = setTimeout(() => {
+    stampLoading = true; renderStampBox();
+    fetchStamps(phone).then(info => {
+      stampLoading = false;
+      if (normalizePhone(document.getElementById('phoneField').value) !== phone) return;
+      stampInfo = info;
+      renderStampBox();
+    });
+  }, 500);
+}
+
+function checkStampsOnShop() {
+  const out = document.getElementById('stampCheckOut');
+  const phone = normalizePhone(document.getElementById('stampPhoneInput').value);
+  if (!phone) { out.innerHTML = '<p>Please enter your 11-digit number (09XXXXXXXXX).</p>'; return; }
+  out.innerHTML = '<p>Checking…</p>';
+  fetchStamps(phone).then(info => {
+    if (!info) { out.innerHTML = '<p>Couldn\'t check right now. Please try again later.</p>'; return; }
+    if (info.isNew) { out.innerHTML = '<p>No stamps yet. Your first order gets a bonus stamp!</p>'; return; }
+    let html = stampDotsHtml(Math.min(info.stamps, STAMP_GOAL));
+    html += `<p><b>${info.stamps} of ${STAMP_GOAL}</b> stamps.${info.rewardReady ? ' 🎉 Your free drink is ready. Add it at checkout.' : ''}</p>`;
+    if (info.expires) html += `<p>${expiryText(info.expires)}</p>`;
+    out.innerHTML = html;
+  });
+}
 
 let cart = [];
 let fulfillment = 'pickup';
@@ -394,6 +529,7 @@ function updateTotals() {
   document.getElementById('deliveryFeeOut').textContent = fee;
   document.getElementById('grandTotalOut').textContent = subtotal + fee;
   document.getElementById('deliveryLabel').textContent = fulfillment === 'delivery' ? 'Delivery fee' : 'Pickup (free)';
+  renderStampBox();
 
   const note = document.getElementById('promoNote');
   if (note) {
@@ -526,6 +662,7 @@ document.getElementById('placeBtn').addEventListener('click', async () => {
     notes: document.getElementById('notesField').value.trim(),
     subtotal: subtotal, deliveryFee: fee, total: subtotal + fee,
     promoApplied: getPromoApplies(),
+    freeDrink: getFreeDrink(),
   };
 
   const btn = document.getElementById('placeBtn');
@@ -552,6 +689,7 @@ document.getElementById('placeBtn').addEventListener('click', async () => {
     if (order.notes) msg += `Notes: ${order.notes}\n`;
     msg += `Payment: ${order.payment}\n`;
     if (order.promoApplied) msg += `Promo: FREE delivery (3+ matcha, Capas)\n`;
+    if (order.freeDrink) msg += `Stamp card reward: 1x ${order.freeDrink.name} (FREE)\n`;
     msg += `\nTotal: ₱${order.total}\nName: ${order.name}\nContact: ${order.phone}`;
     const notifyUrl = `https://m.me/${MESSENGER_USERNAME}?text=${encodeURIComponent(msg)}`;
     document.getElementById('notifyBtn').href = notifyUrl;
@@ -577,6 +715,20 @@ document.getElementById('placeBtn').addEventListener('click', async () => {
     };
 
     document.getElementById('refOut').textContent = order.id;
+    const stampPhone = normalizePhone(order.phone);
+    const stampOut = document.getElementById('stampConfirm');
+    const drinks = order.items.reduce((s, i) => s + i.qty, 0);
+    if (stampInfo && stampInfo.phone === stampPhone) {
+      const added = drinks + (stampInfo.isNew && drinks > 0 ? 1 : 0);
+      const after = stampInfo.stamps - (order.freeDrink ? STAMP_GOAL : 0) + added;
+      stampInfo = { phone: stampPhone, stamps: after, rewardReady: after >= STAMP_GOAL, isNew: false, expires: stampInfo.expires };
+      stampOut.innerHTML = `<div class="stamp-card"><h4>⭐ +${added} stamp${added === 1 ? '' : 's'}!</h4>${stampDotsHtml(Math.min(after, STAMP_GOAL))}
+        <p><b>${after} of ${STAMP_GOAL}</b> stamps.${after >= STAMP_GOAL ? ' 🎉 You earned a FREE drink! Add it to your next order.' : ` ${STAMP_GOAL - after} more for a free drink.`}</p></div>`;
+    } else if (stampPhone) {
+      stampOut.innerHTML = `<div class="stamp-card"><h4>⭐ Stamps added</h4><p>${drinks} stamp${drinks === 1 ? '' : 's'} for this order go to ${stampPhone}. Check your card anytime on the menu page.</p></div>`;
+    } else {
+      stampOut.innerHTML = '';
+    }
     renderPaymentInfo(order);
     document.getElementById('cartOverlay').classList.remove('show');
     document.getElementById('view-shop').classList.add('hidden');
@@ -593,6 +745,9 @@ document.getElementById('placeBtn').addEventListener('click', async () => {
     btn.disabled = false; btn.textContent = 'Place Order';
   }
 });
+
+document.getElementById('phoneField').addEventListener('input', onPhoneChanged);
+document.getElementById('stampCheckBtn').addEventListener('click', checkStampsOnShop);
 
 renderProducts();
 populateSelects();
