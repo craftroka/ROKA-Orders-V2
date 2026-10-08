@@ -124,7 +124,7 @@
 
     <div class="stamp-card" id="stampChecker">
       <h4>⭐ ROKA Stamp Card</h4>
-      <p>Every drink earns 1 stamp. Collect 6 and get a free Matcha Latte or Hojicha Latte. Bonus stamp on your first order. Card is valid 3 months from your first stamp.</p>
+      <p>Every drink earns 1 stamp. Collect 6 and get a free Matcha Latte or Hojicha Latte. Card is valid 3 months from your first stamp.</p>
       <div class="stamp-check">
         <input type="tel" id="stampPhoneInput" placeholder="09XXXXXXXXX">
         <button type="button" id="stampCheckBtn">Check</button>
@@ -134,6 +134,7 @@
   </div>
 
   <div id="view-confirm" class="wrap hidden">
+    <button type="button" id="backTopBtn" style="background:none; border:none; color:var(--ink); font-family:'Karla',sans-serif; font-weight:700; font-size:14px; cursor:pointer; padding:0; display:block; margin:0 auto 6px 0;">← Back to Menu</button>
     <h2>Order received!</h2>
     <p>Your reference number:</p>
     <div class="ref" id="refOut"></div>
@@ -330,9 +331,9 @@ function renderStampBox() {
   }
   const wasChecked = document.getElementById('useFreeDrink') ? document.getElementById('useFreeDrink').checked : false;
   const wasPick = document.getElementById('freeDrinkSelect') ? document.getElementById('freeDrinkSelect').value : STAMP_FREE_IDS[0];
-  const earn = getCartDrinkCount() + (stampInfo.isNew && getCartDrinkCount() > 0 ? 1 : 0);
+  const earn = getCartDrinkCount();
   let html = `<h4>⭐ Your Stamp Card</h4>${stampDotsHtml(Math.min(stampInfo.stamps, STAMP_GOAL))}
-    <p><b>${stampInfo.stamps} of ${STAMP_GOAL}</b> stamps. This order adds <b>${earn}</b>${stampInfo.isNew && earn ? ' (includes 1 welcome stamp)' : ''}.</p>`;
+    <p><b>${stampInfo.stamps} of ${STAMP_GOAL}</b> stamps. This order adds <b>${earn}</b>.</p>`;
   if (stampInfo.expires) html += `<p>${expiryText(stampInfo.expires)}</p>`;
   if (stampInfo.rewardReady) {
     const opts = STAMP_FREE_IDS.map(id => {
@@ -371,7 +372,7 @@ function checkStampsOnShop() {
   const show = (info, updating) => {
     let html;
     if (info.isNew) {
-      html = '<p>No stamps yet. Your first order gets a bonus stamp!</p>';
+      html = '<p>No stamps yet. Every drink you order earns 1 stamp.</p>';
     } else {
       html = stampDotsHtml(Math.min(info.stamps, STAMP_GOAL));
       html += `<p><b>${info.stamps} of ${STAMP_GOAL}</b> stamps.${info.rewardReady ? ' 🎉 Your free drink is ready. Add it at checkout.' : ''}</p>`;
@@ -780,7 +781,7 @@ document.getElementById('placeBtn').addEventListener('click', async () => {
     const stampOut = document.getElementById('stampConfirm');
     const drinks = order.items.reduce((s, i) => s + i.qty, 0);
     if (stampInfo && stampInfo.phone === stampPhone) {
-      const added = drinks + (stampInfo.isNew && drinks > 0 ? 1 : 0);
+      const added = drinks;
       const after = stampInfo.stamps - (order.freeDrink ? STAMP_GOAL : 0) + added;
       stampInfo = { phone: stampPhone, stamps: after, rewardReady: after >= STAMP_GOAL, isNew: false, expires: stampInfo.expires };
       stampCache[stampPhone] = { info: stampInfo, at: Date.now() };
@@ -826,6 +827,7 @@ function orderAgain() {
 }
 
 document.getElementById('orderAgainBtn').addEventListener('click', orderAgain);
+document.getElementById('backTopBtn').addEventListener('click', orderAgain);
 document.getElementById('phoneField').addEventListener('input', onPhoneChanged);
 document.getElementById('stampCheckBtn').addEventListener('click', checkStampsOnShop);
 
