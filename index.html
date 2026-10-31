@@ -3012,6 +3012,11 @@ document.getElementById('btnRider').addEventListener('click', () => {
   updateTotals();
 });
 
+function wireGcashButtons(order) {
+  const b = document.getElementById('saveQrBtn');
+  if (b) b.addEventListener('click', () => saveGcashQr(order.total));
+}
+
 function renderPaymentInfo(order) {
   const box = document.getElementById('paymentInfoBox');
   if (order.payment === 'GCash') {
@@ -3020,7 +3025,12 @@ function renderPaymentInfo(order) {
       <div class="payment-info-card">
         <h4>Pay via GCash</h4>
         <img class="qr" src="${amountQr || GCASH_QR_SRC}" alt="GCash QR">
-        ${amountQr ? `<p class="pay-note" style="margin:0 0 10px; text-align:center;"><b>Amount to pay: ₱${order.total}</b><br>Scan with GCash. The amount is filled in for you. If it asks, enter ₱${order.total}.</p>` : ''}
+        ${amountQr ? `<p class="pay-note" style="margin:0 0 10px; text-align:center;"><b>Amount to pay: ₱${order.total}</b><br>Scan with GCash. The amount is filled in for you. If it asks, enter ₱${order.total}.</p>
+        <div style="display:flex; gap:8px; margin:0 0 12px;">
+          <button type="button" id="saveQrBtn" style="flex:1; padding:11px 8px; border-radius:8px; border:none; background:var(--ink); color:#fff; font-family:'Karla',sans-serif; font-weight:700; font-size:13.5px; cursor:pointer;">1. Save QR</button>
+          <a href="gcash://" id="openGcashBtn" style="flex:1; padding:11px 8px; border-radius:8px; background:var(--mango); color:#17301F; font-family:'Karla',sans-serif; font-weight:700; font-size:13.5px; text-align:center; text-decoration:none;">2. Open GCash</a>
+        </div>
+        <p class="pay-note" style="margin:0 0 10px; text-align:center; font-size:11.5px;">In GCash tap Scan QR, then Upload from gallery and pick the saved QR.</p>` : ''}
         <div class="pay-row"><span>Name</span><span>${GCASH_NAME}</span></div>
         <div class="pay-row"><span>Number</span><span>${GCASH_NUMBER}</span></div>
         <p class="pay-note">Scan the QR or send to the number above, then send us your payment screenshot on Messenger so we can confirm.</p>
@@ -3028,6 +3038,31 @@ function renderPaymentInfo(order) {
   } else {
     box.innerHTML = `<div class="payment-info-card"><h4>Cash on Pickup</h4><p class="pay-note">Please have the exact amount ready when you pick up your order.</p></div>`;
   }
+}
+
+function saveGcashQr(total) {
+  const img = document.querySelector('#paymentInfoBox img.qr');
+  if (!img) return;
+  const btn = document.getElementById('saveQrBtn');
+  const done = (t) => { if (btn) { btn.textContent = t; setTimeout(() => { btn.textContent = '1. Save QR'; }, 2500); } };
+  try {
+    const tmp = new Image();
+    tmp.onload = () => {
+      const pad = 40, size = 560;
+      const cv = document.createElement('canvas'); cv.width = size + pad * 2; cv.height = size + pad * 2 + 60;
+      const ctx = cv.getContext('2d');
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(tmp, pad, pad, size, size);
+      ctx.fillStyle = '#17301F'; ctx.font = 'bold 34px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText('ROKA  PHP ' + total + '.00', cv.width / 2, size + pad * 2 + 20);
+      const a = document.createElement('a');
+      a.href = cv.toDataURL('image/png'); a.download = 'ROKA-GCash-' + total + '.png';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      done('✓ Saved. Now open GCash');
+    };
+    tmp.src = img.src;
+  } catch (e) { done('Press and hold the QR to save'); }
 }
 
 function showError(msg) {
@@ -3142,7 +3177,7 @@ document.getElementById('placeBtn').addEventListener('click', async () => {
     } else {
       stampOut.innerHTML = '';
     }
-    renderPaymentInfo(order);
+    renderPaymentInfo(order); wireGcashButtons(order);
     document.getElementById('cartOverlay').classList.remove('show');
     document.getElementById('view-shop').classList.add('hidden');
     document.getElementById('view-confirm').classList.remove('hidden');
